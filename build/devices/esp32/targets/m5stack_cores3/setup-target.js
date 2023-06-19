@@ -70,24 +70,15 @@ export default function (done) {
 	ioexp.powermode = POWER_MODE_USB_IN_BUS_OUT;
 	//ioexp.powermode = POWER_MODE_USB_IN_BUS_IN;
 
-	// Chage Enable
-	if (power.batpercent >= 0 && power.batpercent < 100) {
-		power.chargeled(true);
-		power.chargeenable(true);
-	} else {
-		power.chargeled(false);
-		power.chargeenable(false);
-	}
-
 	// AXP2101 ADC display
 	let adc=power.adcsampling;
-	trace("vbat:",adc.vbat,"V ");
+	trace("VBAT:",adc.vbat,"V ");
 	if (power.batpercent != -1 )
 		trace(power.batpercent,"%\n");
 	else
 		trace("Battery not connected\n");
-	trace("vbus:",adc.vbus,"V\n");
-	trace("vsys:",adc.vsys,"V\n");
+	trace("VBUS:",adc.vbus,"V (USB BUS Power)\n");
+	trace("VSYS:",adc.vsys,"V (System Power)\n");
 	trace("AXP2101 Temp:",adc.tdie,"°C\n");
 
 	// LCD reset
@@ -219,6 +210,7 @@ class AXP2101 extends SMBus {
 										// BLDO1 default 1.8V for CameraBord AVDD
 										// BLDO2 default 2.8V for CameraBord DVDD
 		this.writeByte(0x99, 0);		// DLDO1 set to    0V for LCD BL
+		this.chargeledmode = 0;
 		trace("AXP2101 init end\n");
 	}
 	// LCD brightness  value 0 - 100 % (step 10%)
@@ -240,11 +232,46 @@ class AXP2101 extends SMBus {
 			value = (value - 18) * 10;
 		return (value);
 	}
-	chargeled(value) {
-		if (value)
-			this.writeByte(0x69, 0b00110101);
-		else
-			this.writeByte(0x69, (this.readByte(0x60) & 0b11111110));
+
+	// status1
+	get status1() {
+		return (this.readByte(0x00));
+	}
+	get iscurrentlimit() {
+		return ((this.readByte(0x00) & 0b1));
+	}
+	get isthermalregulation() {
+		return ((this.readByte(0x00) & 0b10));
+	}
+	get isbatteryactive() {
+		return ((this.readByte(0x00) & 0b100));
+	}
+	get isbatterypresent() {
+		return ((this.readByte(0x00) & 0b1000));
+	}
+	get isbatfetopen() {
+		return ((this.readByte(0x00) & 0b10000));
+	}
+	get isvbusgood() {
+		return ((this.readByte(0x00) & 0b100000));
+	}
+
+	// status2
+	get status2() {
+		return (this.readByte(0x01));
+	}
+	// chage status
+	//  0:tri_charge 1:pre_chage 2:constant carge(CC) 3:constant voltage(CV)
+	//  4:charge done 5:not charging
+	get chargestatus() {
+		return ((this.readByte(0x01) & 0b111));
+	}
+	// VINDPM (in input voltage limit)
+	get isvindpm() {
+		return ((this.readByte(0x01) & 0b1000));
+	}
+	get ispoweron() {
+		return ((this.readByte(0x01) & 0b10000));
 	}
 	// charging
 	// 0b00:Standby 0b01:charge 0b10:discharge
@@ -252,15 +279,16 @@ class AXP2101 extends SMBus {
 		let data = this.readByte(0x01);
     	return (data >> 5) & 0b11;
 	}
-	chargeenable(value) {
-    if (value)
-		this.writeByte(0x33, ((this.readByte(0x33) | 0B10000000)));
-    else
-		this.writeByte(0x33, ((this.readByte(0x33) & 0B01111111)));
+
+	// chage led mode
+	//  0: type A  1: type B
+	/**
+	 * @param {number} value
+	 */
+	set chargeledmode(value) {
+		this.writeByte(0x69, ((this.readByte(0x69) & 0b11111001)|((value & 0b11)<<1)));
 	}
-	setchargecurrent(current) {
-    	this.writeByte(0x33, ((this.readByte(0x33) & 0B11110000) | current));
-	}
+
 	poweroff() {
     	this.writeByte(0x10, (this.readByte(0x10) | 0B00000001));
 	}
